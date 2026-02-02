@@ -14,7 +14,7 @@
  * - Multi-monitor aware positioning
  * 
  * Initialization sequence:
- * 1. Seed PRNG with GetCurrentTime()
+ * 1. Seed LCG PRNG with GetTickCount64()
  * 2. Load string resources (app name, default player name, time format)
  * 3. Cache system metrics (caption height, border sizes, menu height)
  * 4. Check for existing registry configuration
@@ -29,18 +29,11 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
-#include <strsafe.h>
-
 #include "main.h"
 #include "resource.h"
 #include "preferences.h"
 #include "utilities.h"
-#include "sound.h"
 #include "game.h"
-#include "string.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "dos.h"
 
 extern INT dypBorder;
 extern INT dxpBorder;
@@ -57,20 +50,108 @@ extern HMENU  g_MenuHandle;
 
 extern PREF g_GameConfig;
 
-extern  HKEY g_hReg;
-extern  TCHAR * rgszPref[iszPrefMax];
-TCHAR   szIniFile[] = TEXT("entpack.ini");
 
+/****** R N D *****/
 
-/****** R N D ******/
+/* LCG PRNG -- no CRT. Constants: Numerical Recipes */
+static DWORD g_PrngState = 0;
 
-/* Return a random number between 0 and rndMax */
+static DWORD PrngNext(VOID)
+{
+    g_PrngState = g_PrngState * 1664525U + 1013904223U;
+    return g_PrngState;
+}
+
+/* Return a random number between 0 and rndMax-1 */
 
 INT GenerateRandomNumber(INT rndMax)
 {
-        return (rand() % rndMax);
+        /* Use upper 16 bits — low bits of LCG have short period for power-of-2 modulus */
+        return (INT)((PrngNext() >> 16) % (DWORD)rndMax);
 }
 
+
+/****** S T R I N G  H E L P E R S ******/
+
+/* Simple integer to string conversion to avoid CRT/wsprintf dependencies */
+static VOID IntToDecStr(INT val, TCHAR* buf)
+{
+    TCHAR temp[16];
+    int i = 0;
+    int j = 0;
+    BOOL neg = FALSE;
+
+    if (val < 0) {
+        neg = TRUE;
+        val = -val;
+    }
+
+    if (val == 0) {
+        temp[i++] = TEXT('0');
+    } else {
+        while (val > 0) {
+            temp[i++] = (TCHAR)(TEXT('0') + (val % 10));
+            val /= 10;
+        }
+    }
+
+    if (neg) {
+        buf[j++] = TEXT('-');
+    }
+
+    while (i > 0) {
+        buf[j++] = temp[--i];
+    }
+    buf[j] = TEXT('\0');
+}
+
+/* Format time using the format string from resources (e.g., "%d seconds") */
+VOID FormatTime(TCHAR* buf, INT time)
+{
+    /* We assume szTime contains "%d" exactly once. 
+       We'll brute force replace it. */
+    TCHAR numBuf[16];
+    TCHAR* pSrc = szTime;
+    TCHAR* pDest = buf;
+    
+    IntToDecStr(time, numBuf);
+
+    while (*pSrc) {
+        if (*pSrc == TEXT('%') && *(pSrc+1) == TEXT('d')) {
+            TCHAR* pNum = numBuf;
+            while (*pNum) {
+                *pDest++ = *pNum++;
+            }
+            pSrc += 2;
+        } else {
+            *pDest++ = *pSrc++;
+        }
+    }
+    *pDest = TEXT('\0');
+}
+
+/* Format error message: assumes fmt contains "%d" or similar for error code */
+VOID FormatError(TCHAR* buf, const TCHAR* fmt, INT code)
+{
+    TCHAR numBuf[16];
+    const TCHAR* pSrc = fmt;
+    TCHAR* pDest = buf;
+    
+    IntToDecStr(code, numBuf);
+
+    while (*pSrc) {
+        if (*pSrc == TEXT('%') && (*(pSrc+1) == TEXT('d') || *(pSrc+1) == TEXT('u'))) {
+            TCHAR* pNum = numBuf;
+            while (*pNum) {
+                *pDest++ = *pNum++;
+            }
+            pSrc += 2;
+        } else {
+            *pDest++ = *pSrc++;
+        }
+    }
+    *pDest = TEXT('\0');
+}
 
 
 /****** R E P O R T  E R R ******/
@@ -87,7 +168,7 @@ VOID DisplayErrorMessage(WORD idErr)
 		else
 				{
 				LoadString(g_AppInstance, ID_ERR_UNKNOWN, szMsgTitle, cchMsgMax);
-				StringCchPrintf(szMsg, ARRAYSIZE(szMsg), szMsgTitle, idErr);
+				FormatError(szMsg, szMsgTitle, idErr);
 				}
 
         LoadString(g_AppInstance, ID_ERR_TITLE, szMsgTitle, cchMsgMax);
@@ -105,34 +186,11 @@ VOID LoadStringResource(WORD id, TCHAR * sz, DWORD cch)
 }
 
 
-// Routines to read the ini file.
-
-INT ReadIniInteger(INT iszPref, INT valDefault, INT valMin, INT valMax)
-{
-	return max(valMin, min(valMax,
-		(INT) GetPrivateProfileInt(g_WindowClass, rgszPref[iszPref], valDefault, szIniFile) ) );
-}
-
-#define ReadIniBoolean(iszPref, valDefault) ReadIniInteger(iszPref, valDefault, 0, 1)
-
-
-VOID ReadIniString(INT iszPref, TCHAR FAR * szRet)
-{
-	GetPrivateProfileString(g_WindowClass, rgszPref[iszPref], szDefaultName, szRet, cchNameMax, szIniFile);
-}
-
-
-
-
 /****** I N I T  C O N S T ******/
 
 VOID InitializeConstants(VOID)
 {
-INT     iAlreadyPlayed = 0;     // have we already updated the registry ?
-DWORD   dwDisposition;
-       
-
-        srand(LOWORD(GetCurrentTime()));
+        g_PrngState = (DWORD)GetTickCount64();
 
         LoadStringResource(ID_GAMENAME, g_WindowClass, ARRAYSIZE(g_WindowClass));
         LoadStringResource(ID_MSG_SEC,  szTime, ARRAYSIZE(szTime));
@@ -142,48 +200,8 @@ DWORD   dwDisposition;
         dypMenu    = GetSystemMetrics(SM_CYMENU)    + 1;
         dypBorder  = GetSystemMetrics(SM_CYBORDER)  + 1;
         dxpBorder  = GetSystemMetrics(SM_CXBORDER)  + 1;
-
-        // Open the registry key;
-        if (RegCreateKeyEx(HKEY_CURRENT_USER, SZWINMINEREG, 0, NULL, 0, KEY_READ, NULL, 
-                   &g_hReg, &dwDisposition) == ERROR_SUCCESS)
-        {
-            iAlreadyPlayed = ReadRegistryInteger(iszPrefAlreadyPlayed, 0, 0, 1);
-            RegCloseKey(g_hReg);
-        }
-
-
-        // Read it from the .ini file and write it to registry.
-        if (!iAlreadyPlayed)
-        {
-            g_GameConfig.Height= ReadIniInteger(iszPrefHeight,MINHEIGHT,DEFHEIGHT,25);
-            g_GameConfig.Width= ReadIniInteger(iszPrefWidth,MINWIDTH,DEFWIDTH,30);
-
-            g_GameConfig.wGameType = (WORD)ReadIniInteger(iszPrefGame,wGameBegin, wGameBegin, wGameExpert+1);
-            g_GameConfig.Mines    = ReadIniInteger(iszPrefMines, 10, 10, 999);
-            g_GameConfig.xWindow  = ReadIniInteger(iszPrefxWindow, 80, 0, 1024);
-            g_GameConfig.yWindow  = ReadIniInteger(iszPrefyWindow, 80, 0, 1024);
-
-            g_GameConfig.fSound = ReadIniInteger(iszPrefSound, 0, 0, fsoundOn);
-            g_GameConfig.fMark  = ReadIniBoolean(iszPrefMark,  TRUE);
-            g_GameConfig.fTick  = ReadIniBoolean(iszPrefTick,  FALSE);
-            g_GameConfig.fMenu  = ReadIniInteger(iszPrefMenu,  fmenuAlwaysOn, fmenuAlwaysOn, fmenuOn);
-	
-            g_GameConfig.rgTime[wGameBegin]  = ReadIniInteger(iszPrefBeginTime, 999, 0, 999);
-            g_GameConfig.rgTime[wGameInter]  = ReadIniInteger(iszPrefInterTime, 999, 0, 999);
-            g_GameConfig.rgTime[wGameExpert] = ReadIniInteger(iszPrefExpertTime, 999, 0, 999);
-
-            ReadIniString(iszPrefBeginName, g_GameConfig.szBegin);
-            ReadIniString(iszPrefInterName, g_GameConfig.szInter);
-            ReadIniString(iszPrefExpertName, g_GameConfig.szExpert);
-
-            if (FSoundOn())
-                g_GameConfig.fSound = InitializeAudioSystem();
-            
-            // Write it to registry.
-            SaveConfiguration();
-        }
-
 }
+
 
 
 
@@ -238,4 +256,3 @@ INT GetDialogInteger(HWND hDlg, INT dlgID, INT numLo, INT numHi)
 
         return num;
 }
-

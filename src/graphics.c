@@ -27,7 +27,6 @@
 
 #include <windows.h>
 #include <windowsx.h>
-#include <math.h>
 
 #include "main.h"
 #include "resource.h"
@@ -95,6 +94,48 @@ extern INT g_CurrentButton;
 
 
 /****** F I N I T  L O C A L ******/
+
+/* Double-buffering back surface */
+static HDC     g_BackDC     = NULL;
+static HBITMAP g_BackBitmap = NULL;
+static INT     g_BackWidth  = 0;
+static INT     g_BackHeight = 0;
+
+static VOID EnsureBackBuffer(VOID)
+{
+    HDC hDC;
+
+    if (g_BackDC && g_BackWidth == g_WindowWidth && g_BackHeight == g_WindowHeight)
+        return;
+
+    if (g_BackBitmap) DeleteObject(g_BackBitmap);
+    if (g_BackDC)     DeleteDC(g_BackDC);
+
+    hDC = GetDC(g_MainWindow);
+    g_BackDC     = CreateCompatibleDC(hDC);
+    g_BackBitmap = CreateCompatibleBitmap(hDC, g_WindowWidth, g_WindowHeight);
+    SelectObject(g_BackDC, g_BackBitmap);
+    g_BackWidth  = g_WindowWidth;
+    g_BackHeight = g_WindowHeight;
+    ReleaseDC(g_MainWindow, hDC);
+
+    RenderGameWindow(g_BackDC);
+}
+
+static VOID FlushBackBuffer(VOID)
+{
+    HDC hDC = GetDC(g_MainWindow);
+    BitBlt(hDC, 0, 0, g_BackWidth, g_BackHeight, g_BackDC, 0, 0, SRCCOPY);
+    ReleaseDC(g_MainWindow, hDC);
+}
+
+VOID PaintWindow(HDC hPaintDC)
+{
+    EnsureBackBuffer();
+    RenderGameWindow(g_BackDC);
+    BitBlt(hPaintDC, 0, 0, g_BackWidth, g_BackHeight, g_BackDC, 0, 0, SRCCOPY);
+}
+
 
 BOOL InitializeGraphics(VOID)
 {
@@ -226,6 +267,8 @@ VOID ReleaseGraphicsFonts(VOID)
 
 VOID ReleaseResources(VOID)
 {
+    if (g_BackBitmap) { DeleteObject(g_BackBitmap); g_BackBitmap = NULL; }
+    if (g_BackDC)     { DeleteDC(g_BackDC);         g_BackDC     = NULL; }
     ReleaseGraphicsFonts();
     ShutdownAudioSystem();
 }
@@ -447,9 +490,9 @@ VOID RenderCell(HDC hDC, INT x, INT y)
 
 VOID RefreshCell(INT x, INT y)
 {
-    HDC hDC = GetDC(g_MainWindow);
-    RenderCell(hDC, x, y);
-    ReleaseDC(g_MainWindow, hDC);
+    EnsureBackBuffer();
+    RenderCell(g_BackDC, x, y);
+    FlushBackBuffer();
 }
 
 
@@ -471,9 +514,9 @@ VOID RenderGameGrid(HDC hDC)
 
 VOID RefreshGameGrid(VOID)
 {
-    HDC hDC = GetDC(g_MainWindow);
-    RenderGameGrid(hDC);
-    ReleaseDC(g_MainWindow, hDC);
+    EnsureBackBuffer();
+    RenderGameGrid(g_BackDC);
+    FlushBackBuffer();
 }
 
 
@@ -553,9 +596,9 @@ VOID RenderMineDisplay(HDC hDC)
 
 VOID RefreshMineDisplay(VOID)
 {
-    HDC hDC = GetDC(g_MainWindow);
-    RenderMineDisplay(hDC);
-    ReleaseDC(g_MainWindow, hDC);
+    EnsureBackBuffer();
+    RenderMineDisplay(g_BackDC);
+    FlushBackBuffer();
 }
 
 
@@ -576,9 +619,9 @@ VOID RenderTimeDisplay(HDC hDC)
 
 VOID RefreshTimeDisplay(VOID)
 {
-    HDC hDC = GetDC(g_MainWindow);
-    RenderTimeDisplay(hDC);
-    ReleaseDC(g_MainWindow, hDC);
+    EnsureBackBuffer();
+    RenderTimeDisplay(g_BackDC);
+    FlushBackBuffer();
 }
 
 
@@ -676,9 +719,9 @@ VOID RenderControlButton(HDC hDC, INT iButton)
 
 VOID RefreshControlButton(INT iButton)
 {
-    HDC hDC = GetDC(g_MainWindow);
-    RenderControlButton(hDC, iButton);
-    ReleaseDC(g_MainWindow, hDC);
+    EnsureBackBuffer();
+    RenderControlButton(g_BackDC, iButton);
+    FlushBackBuffer();
 }
 
 
@@ -727,6 +770,10 @@ VOID RenderWindowBorder(HDC hDC)
 
 VOID RenderGameWindow(HDC hDC)
 {
+    RECT rc;
+    SetRect(&rc, 0, 0, g_WindowWidth, g_WindowHeight);
+    FillRect(hDC, &rc, GetSysColorBrush(COLOR_WINDOW));
+
     RenderWindowBorder(hDC);
     RenderMineDisplay(hDC);
     RenderControlButton(hDC, g_CurrentButton);
@@ -736,7 +783,7 @@ VOID RenderGameWindow(HDC hDC)
 
 VOID RefreshGameWindow(VOID)
 {
-    HDC hDC = GetDC(g_MainWindow);
-    RenderGameWindow(hDC);
-    ReleaseDC(g_MainWindow, hDC);
+    EnsureBackBuffer();
+    RenderGameWindow(g_BackDC);
+    FlushBackBuffer();
 }

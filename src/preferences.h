@@ -60,9 +60,7 @@ typedef struct
 #define iszPrefInterName   13     /* szInter */
 #define iszPrefExpertTime  14     /* rgTime[2] */
 #define iszPrefExpertName  15     /* szExpert */
-#define iszPrefAlreadyPlayed 16   /* Migration flag */
-
-#define iszPrefMax 17             /* Total registry value count */
+#define iszPrefMax 16             /* Total registry value count */
 
 
 VOID LoadConfiguration(VOID);

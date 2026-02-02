@@ -80,6 +80,7 @@ VOID RenderTimeDisplay(HDC);
 VOID RefreshTimeDisplay(VOID);
 VOID RenderGameWindow(HDC);
 VOID RefreshGameWindow(VOID);
+VOID PaintWindow(HDC);
 
 BOOL LoadGraphicsFonts(VOID);
 VOID ReleaseGraphicsFonts(VOID);

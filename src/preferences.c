@@ -34,7 +34,7 @@
 #include "preferences.h"
 #include "sound.h"
 
-BOOL fUpdateIni = FALSE;
+BOOL g_SettingsDirty = FALSE;
 HKEY g_hReg;
 
 extern TCHAR szDefaultName[];
@@ -60,8 +60,7 @@ TEXT("Name1"     ),
 TEXT("Time2"     ),
 TEXT("Name2"     ),
 TEXT("Time3"     ),
-TEXT("Name3"     ),
-TEXT("AlreadyPlayed")
+TEXT("Name3"     )
 };
 
 /****** PREFERENCES ******/
@@ -186,8 +185,6 @@ DWORD dwDisposition;
 	WriteRegistryInteger(iszPrefWidth,  g_GameConfig.Width);
 	WriteRegistryInteger(iszPrefMines,  g_GameConfig.Mines);
 	WriteRegistryInteger(iszPrefMark,   g_GameConfig.fMark);
-	WriteRegistryInteger(iszPrefAlreadyPlayed, 1);
-
 #ifdef WRITE_HIDDEN
 	WriteRegistryInteger(iszPrefMenu,   g_GameConfig.fMenu);
 	WriteRegistryInteger(iszPrefTick,   g_GameConfig.fTick);

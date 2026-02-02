@@ -76,7 +76,7 @@ INT     g_CursorY = -1;
 CHAR g_GameGrid[cBlkMax];
 
 /* Circular queue for breadth-first flood fill algorithm */
-#define iStepMax 1000
+#define iStepMax cBlkMax
 
 INT g_FloodQueueX[iStepMax];
 INT g_FloodQueueY[iStepMax];

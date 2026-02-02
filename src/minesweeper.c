@@ -32,7 +32,6 @@
 #include <shellapi.h>
 #include <commctrl.h>
 #include <dwmapi.h>
-#include <strsafe.h>
 
 /* ========================================================================
    LIBRARY LINKAGE - Import required Windows libraries
@@ -51,12 +50,6 @@
 #include "preferences.h"
 #include "utilities.h"
 #include "sound.h"
-
-/* ========================================================================
-   STANDARD C LIBRARY INCLUDES
-   ======================================================================== */
-#include <string.h>
-#include <stdio.h>
 
 /* ========================================================================
    PLATFORM COMPATIBILITY DEFINITIONS
@@ -100,7 +93,7 @@ TCHAR szTime[cchNameMax];
 TCHAR szDefaultName[cchNameMax];
 
 
-extern BOOL fUpdateIni;
+extern BOOL g_SettingsDirty;
 
 extern INT g_CursorX;
 extern INT g_CursorY;
@@ -199,7 +192,38 @@ VOID ApplyModernWindowStyle(HWND hwnd)
 
 /****** W I N  M A I N ******/
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+/* Forward declaration for the application logic */
+int WINAPI WinMineApp(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow);
+
+/* 
+ * Custom entry point to support /NODEFAULTLIB (No CRT)
+ * This function initializes the necessary startup info and calls the main application logic.
+ */
+void WINAPI WinMineEntry(void)
+{
+    /* Get the instance handle for the current module */
+    HINSTANCE hInstance = GetModuleHandle(NULL);
+    
+    /* Get command line arguments (ANSI version to match LPSTR) */
+    /* Note: This returns the full command line including the executable path. */
+    LPSTR lpCmdLine = GetCommandLineA();
+    
+    /* Determine the initial window show state */
+    STARTUPINFOA si;
+    INT nCmdShow = SW_SHOWDEFAULT;
+
+    si.cb = sizeof(si);  /* GetStartupInfoA fills the rest — no zeroing needed */
+
+    GetStartupInfoA(&si);
+    if (si.dwFlags & STARTF_USESHOWWINDOW) {
+        nCmdShow = si.wShowWindow;
+    }
+
+    /* Transfer control to the main application logic */
+    ExitProcess(WinMineApp(hInstance, NULL, lpCmdLine, nCmdShow));
+}
+
+int WINAPI WinMineApp(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 	MSG msg;
 	HANDLE hAccel;
@@ -210,57 +234,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     bInitMinimized = (nCmdShow == SW_SHOWMINNOACTIVE) ||
                      (nCmdShow == SW_SHOWMINIMIZED) ;
-
-#ifdef WIN16
-	if (hPrevInstance)
-		{
-		HWND hWnd = FindWindow(g_WindowClass, NULL);
-		hWnd = GetLastActivePopup(hWnd);
-		BringWindowToTop(hWnd);
-		if (!bInitMinimized && IsIconic(hWnd))
-			SendMessage(hwnd, WM_SYSCOMMAND, SC_RESTORE, 0L);
-		return FALSE;
-		}
-#endif
-
-#ifdef NOSERVER		/*** Not in final release ***/
-	{
-	TCHAR  szFile[256];
-
-	GetModuleFileName(g_AppInstance, szFile, 250);
-
-	if (szFile[0] > TEXT('C'))
-		{
-		szFile[0] = TEXT('X');
-		if (!lstrcmp(szFile, TEXT("X:\\WINGAMES\\WINMINE\\WINMINE.EXE")))
-			{
-			MessageBox(GetFocus(),
-				TEXT("Please copy winmine.exe and aboutwep.dll to your machine and run it from there."),
-				TEXT("NO NO NO NO NO"),
-				MB_OK);
-			return FALSE;
-			}
-		}
-	}
-#endif
-
-
-#ifdef EXPIRE			/*** Not in final release ***/
-	{
-	struct dosdate_t ddt;
-
-	_dos_getdate(&ddt);
-
-	if ((ddt.month + ddt.year*12) > (9 + 1990*12))
-		{
-		MessageBox(GetFocus(),
-			TEXT("This game has expired. Please obtain an official copy from the Windows Entertainment Package."),
-			TEXT("SORRY"),
-			MB_OK);
-		return FALSE;
-		}
-	}
-#endif
 
 
 	{
@@ -353,7 +326,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	ReleaseResources();
 
-    if (fUpdateIni)
+    if (g_SettingsDirty)
         SaveConfiguration();
 
 	/* Clean up extracted icon if it was dynamically loaded */
@@ -458,7 +431,7 @@ VOID ShowPreferencesDialog(VOID)
 
     g_GameConfig.wGameType = wGameOther;
 	UpdateMenuStates();
-	fUpdateIni = TRUE;
+	g_SettingsDirty = TRUE;
 	InitializeGameBoard();
 }
 
@@ -468,7 +441,7 @@ VOID ShowPreferencesDialog(VOID)
 VOID ShowNameEntryDialog(VOID)
 {
 	DialogBox(g_AppInstance, MAKEINTRESOURCE(ID_DLG_ENTER), g_MainWindow, NameEntryDialogHandler);
-	fUpdateIni = TRUE;
+	g_SettingsDirty = TRUE;
 }
 
 
@@ -492,7 +465,7 @@ LRESULT  APIENTRY WindowMessageHandler(HWND hWnd, UINT message, WPARAM wParam, L
 			{
 			g_GameConfig.xWindow = ((LPWINDOWPOS) (lParam))->x;
 			g_GameConfig.yWindow = ((LPWINDOWPOS) (lParam))->y;
-			fUpdateIni = TRUE;
+			g_SettingsDirty = TRUE;
 			}	
 		break;
 
@@ -547,8 +520,10 @@ LRESULT  APIENTRY WindowMessageHandler(HWND hWnd, UINT message, WPARAM wParam, L
 		    g_GameConfig.Mines  = rgLevelData[g_GameConfig.wGameType][0];
 		    g_GameConfig.Height = rgLevelData[g_GameConfig.wGameType][1];
 		    g_GameConfig.Width  = rgLevelData[g_GameConfig.wGameType][2];
-		    InitializeGameBoard();
-		    goto LUpdateMenu;
+		    g_SettingsDirty = TRUE;
+		    InitializeGameBoard();   /* ResizeGameWindow is called at the end */
+		    UpdateMenuStates();      /* only refresh checkmarks, no extra resize */
+		    break;
 
 	    case IDM_CUSTOM:
 		    ShowPreferencesDialog();
@@ -572,7 +547,7 @@ LRESULT  APIENTRY WindowMessageHandler(HWND hWnd, UINT message, WPARAM wParam, L
 	    /* IE	goto LUpdateMenu;	*/
 
     LUpdateMenu:
-		    fUpdateIni = TRUE;
+		    g_SettingsDirty = TRUE;
 		    SetMenuVisibility(g_GameConfig.fMenu);
 		    break;
 
@@ -635,10 +610,14 @@ LRESULT  APIENTRY WindowMessageHandler(HWND hWnd, UINT message, WPARAM wParam, L
 			break;
 
 #ifdef XYZZY
-		case VK_SHIFT:
-			if (iXYZZY >= cchXYZZY)
-				iXYZZY ^= 20;
-			break;
+	case VK_SHIFT:
+		if (iXYZZY >= cchXYZZY)
+			{
+			iXYZZY ^= 20;
+			/* Restore happy face when exiting cheat mode */
+			RefreshControlButton(iButtonHappy);
+			}
+		break;
 
 		default:
 			if (iXYZZY < cchXYZZY)
@@ -696,37 +675,48 @@ LBigStep:
 		g_CursorY = -1;
 		RefreshControlButton(iButtonCaution);
 
-	case WM_MOUSEMOVE:
-		if (g_LeftButtonDown)
-			{
-			if (g_GameStatus & fPlay)
-				UpdateCursorPosition(xBoxFromXpos(LOWORD(lParam)), yBoxFromYpos(HIWORD(lParam)) );
-			else
-				goto LFixTimeOut;
-			}
-#ifdef XYZZY
-        //
-        // This is the cheat:
-        // If you hold down the shift key and type 'XYZZY'
-        // then when you hold down the control key, to upper
-        // left hand corner pixel will show the state of the
-        // mine field under the mouse.  Oh. joy.  I can win.
-        //
-		else if (iXYZZY != 0)
-			if (((iXYZZY == cchXYZZY) && (wParam & MK_CONTROL))
-			   ||(iXYZZY > cchXYZZY))
-			{
-			g_CursorX = xBoxFromXpos(LOWORD(lParam));
-			g_CursorY = yBoxFromYpos(HIWORD(lParam));
-			if (IsValidPosition(g_CursorX, g_CursorY))
-				{
-                HDC hDC = GetDC(NULL);                
-				SetPixel(hDC, 0, 0, HasMine(g_CursorX, g_CursorY) ? 0L : 0x00FFFFFFL);
-				ReleaseDC(NULL, hDC);
-				}
-			}
+case WM_MOUSEMOVE:
+    if (g_LeftButtonDown)
+        {
+        if (g_GameStatus & fPlay)
+            UpdateCursorPosition(xBoxFromXpos(LOWORD(lParam)), yBoxFromYpos(HIWORD(lParam)) );
+        else
+            goto LFixTimeOut;
+        }
+	#ifdef XYZZY
+    /* XYZZY cheat mode: show scared face when hovering over mine */
+    else if (iXYZZY != 0)
+        if (((iXYZZY == cchXYZZY) && (wParam & MK_CONTROL))
+           ||(iXYZZY > cchXYZZY))
+        {
+        static INT g_LastCheatButton = -1;
+        
+        g_CursorX = xBoxFromXpos(LOWORD(lParam));
+        g_CursorY = yBoxFromYpos(HIWORD(lParam));
+        
+        if (IsValidPosition(g_CursorX, g_CursorY))
+            {
+            INT newButton = HasMine(g_CursorX, g_CursorY) ? iButtonCaution : iButtonHappy;
+            
+            /* Only redraw if state changed to avoid flicker */
+            if (newButton != g_LastCheatButton)
+                {
+                RefreshControlButton(newButton);
+                g_LastCheatButton = newButton;
+                }
+            }
+        else
+            {
+            /* Cursor outside grid - restore happy face */
+            if (g_LastCheatButton != iButtonHappy)
+                {
+                RefreshControlButton(iButtonHappy);
+                g_LastCheatButton = iButtonHappy;
+                }
+            }
+        }
 #endif
-		break;
+    break;
 
 	case WM_RBUTTONUP:
 	case WM_MBUTTONUP:
@@ -790,7 +780,7 @@ LFixTimeOut:
 		{
 		PAINTSTRUCT ps;
 		HDC hDC = BeginPaint(hWnd,&ps);
-		RenderGameWindow(hDC);
+		PaintWindow(hDC);
 		EndPaint(hWnd, &ps);
 		}
 		return 0;
@@ -855,7 +845,7 @@ VOID SetBestTimeDialogText(HWND hDlg, INT id, INT time, TCHAR FAR * szName)
 {
 	TCHAR sz[cchNameMax];
 
-	StringCchPrintf(sz, ARRAYSIZE(sz), szTime, time);
+	FormatTime(sz, time);
 	SetDlgItemText(hDlg, id, sz);
 	SetDlgItemText(hDlg, id+1, szName);
 }
@@ -882,7 +872,7 @@ LReset:
 			lstrcpy(g_GameConfig.szBegin,  szDefaultName);
 			lstrcpy(g_GameConfig.szInter,  szDefaultName);
 			lstrcpy(g_GameConfig.szExpert, szDefaultName);
-			fUpdateIni = TRUE;
+			g_SettingsDirty = TRUE;
 			goto LReset;
 			
 		case ID_BTN_OK:

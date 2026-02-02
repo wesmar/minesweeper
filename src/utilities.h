@@ -33,3 +33,7 @@ VOID ShowAboutDialog(VOID);
 
 VOID SetMenuCheckmark(WORD, BOOL);
 VOID SetMenuVisibility(INT);
+
+/* Helper functions to replace wsprintf/CRT */
+VOID FormatTime(TCHAR* buf, INT time);
+VOID FormatError(TCHAR* buf, const TCHAR* fmt, INT code);
