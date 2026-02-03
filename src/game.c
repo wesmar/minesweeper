@@ -76,6 +76,8 @@ INT     g_CursorY = -1;
 CHAR g_GameGrid[cBlkMax];
 
 /* Circular queue for breadth-first flood fill algorithm */
+// Maximum flood-fill queue size = grid area (40×40)
+// Prevents stack overflow on pathological mine layouts
 #define iStepMax cBlkMax
 
 INT g_FloodQueueX[iStepMax];

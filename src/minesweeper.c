@@ -13,7 +13,7 @@
  * - Menu state synchronization and accelerator handling
  * 
  * Key features:
- * - Icon extraction from shell32.dll (index 80 - bomb icon)
+ * - Icon extraction from moricons.dll (index 80 - bomb icon)
  * - Multi-monitor aware window positioning
  * - Dynamic menu height calculation for multi-line layouts
  * - XYZZY cheat code implementation (state machine pattern)
@@ -36,7 +36,7 @@
 /* ========================================================================
    LIBRARY LINKAGE - Import required Windows libraries
    ======================================================================== */
-#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "moricons.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "comctl32.lib")
 
@@ -66,7 +66,7 @@ HANDLE g_AppInstance;
 HWND   g_MainWindow;
 HMENU  g_MenuHandle;
 
-/* Application icon loaded from shell32.dll */
+/* Application icon loaded from moricons.dll */
 HICON   hIconMain;
 
 /* Mouse button state tracking for chord mode */
@@ -247,8 +247,8 @@ int WINAPI WinMineApp(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdL
 	InitCommonControlsEx(&icc);
 
 
-	/* Extract bomb icon from shell32.dll - icon index 80 */
-	HICON hExtractedIcon = ExtractIconA(g_AppInstance, "shell32.dll", 80);
+	/* Extract smile icon from moricons.dll - icon index 22 */
+	HICON hExtractedIcon = ExtractIconA(g_AppInstance, "moricons.dll", 22);
 
 	/* Fallback to default application icon if extraction fails */
 	if ((UINT_PTR)hExtractedIcon <= 1) {
@@ -858,6 +858,10 @@ INT_PTR  APIENTRY HighScoresDialogHandler(HWND hDlg, UINT message, WPARAM wParam
 	switch (message)
 		{
 	case WM_INITDIALOG:
+		/* Set dialog icon to match main window */
+		SendMessage(hDlg, WM_SETICON, ICON_SMALL, (LPARAM)hIconMain);
+		SendMessage(hDlg, WM_SETICON, ICON_BIG, (LPARAM)hIconMain);
+		
 LReset:	
 		SetBestTimeDialogText(hDlg, ID_TIME_BEGIN, g_GameConfig.rgTime[wGameBegin], g_GameConfig.szBegin);
 		SetBestTimeDialogText(hDlg, ID_TIME_INTER, g_GameConfig.rgTime[wGameInter],  g_GameConfig.szInter);
@@ -890,8 +894,6 @@ LReset:
 
 	return (FALSE);			/* Didn't process a message    */
 }
-
-
 
 /****** E N T E R  D L G  P R O C ******/
 
